@@ -2,8 +2,8 @@
 
 ### **List: Setup and Planning**
 - **Task 1:** Create project repository on GitHub and initialize Trello board. Done
-- **Task 2:** Define MVP requirements and draft wireframes for the dashboard and overlay.
-- **Task 3:** Choose open source tools: tmi.js for Twitch chat, Llama 2/GPT4All with vLLM for LLM, Mozilla/Coqui TTS for TTS, Godot for avatar, and OBS WebSocket for integration.
+- **Task 2:** Define MVP requirements and draft wireframes for the dashboard and overlay. Done
+- **Task 3:** Choose open source tools: tmi.js for Twitch chat, Llama 2/GPT4All with vLLM for LLM, Mozilla/Coqui TTS for TTS, Godot for avatar, and OBS WebSocket for integration. Done
 
 ### **List: Twitch Chat Integration**
 - **Task 4:** Set up a basic Node.js or Python (FastAPI) service to connect to Twitch chat using tmi.js.
