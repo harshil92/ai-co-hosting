@@ -1,0 +1,2 @@
+[console_scripts]
+ai-co-host = twitch_bot.__main__:main
