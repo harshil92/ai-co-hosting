@@ -111,3 +111,4 @@
    - Real-time updates: < 100ms latency
    - Avatar animation FPS: 60
    - Memory usage: < 200MB 
+   
