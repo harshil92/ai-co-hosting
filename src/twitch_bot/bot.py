@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import List, Dict, Optional
 import logging
 from twitch_bot.config import settings
+from twitch_bot.message_parser import MessageParser
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)  # Change to DEBUG level
@@ -115,6 +116,7 @@ class Bot(commands.Bot):
             initial_channels=[settings.TWITCH_CHANNEL]
         )
         self.channel = settings.TWITCH_CHANNEL
+        self.message_parser = MessageParser(settings.TWITCH_BOT_USERNAME)
 
     async def broadcast_message(self, message: Dict):
         """Broadcast message to all connected WebSocket clients."""
@@ -138,7 +140,7 @@ class Bot(commands.Bot):
         if message.echo:
             return
 
-        # Log the message
+        # Create message data
         msg_data = {
             "type": "chat_message",
             "content": message.content,
@@ -146,7 +148,28 @@ class Bot(commands.Bot):
             "timestamp": datetime.now().isoformat()
         }
         
-        logger.debug(f"Received message: {msg_data}")
+        # Parse the message
+        parsed_message = self.message_parser.parse_message(msg_data)
+        if parsed_message:
+            # Format for dialogue engine
+            dialogue_message = self.message_parser.format_for_dialogue(parsed_message)
+            
+            # Add parsed data to broadcast
+            msg_data.update({
+                "parsed_data": {
+                    "is_question": parsed_message.is_question,
+                    "addressed_to_bot": parsed_message.addressed_to_bot,
+                    "mentioned_users": parsed_message.mentioned_users,
+                    "emotes": parsed_message.emotes
+                }
+            })
+            
+            # Log parsed message details
+            logger.debug(f"Parsed message: {dialogue_message}")
+            
+            # TODO: Send to dialogue engine when implemented
+            if parsed_message.addressed_to_bot:
+                logger.info(f"Message addressed to bot: {message.content}")
         
         # Broadcast to WebSocket clients
         await self.broadcast_message(msg_data)
