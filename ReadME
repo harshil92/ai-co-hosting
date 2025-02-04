@@ -12,3 +12,10 @@ Build an AI Virtual Co-host for Twitch that provides dynamic, natural language i
 - Seamlessly integrate with Twitch chat and OBS (an open source streaming platform).
 - Offer customizable personality and visual appearance for the virtual co-host.
 - Utilize modern, open source tools to ensure flexibility, scalability, and community support.
+
+---
+
+http://localhost:8000  -  home page
+http://localhost:8000/auth/callback as an OAuth Redirect URL
+http://localhost:8000/status - status page
+

@@ -6,9 +6,9 @@
 - **Task 3:** Choose open source tools: tmi.js for Twitch chat, Llama 2/GPT4All with vLLM for LLM, Mozilla/Coqui TTS for TTS, Godot for avatar, and OBS WebSocket for integration. Done
 
 ### **List: Twitch Chat Integration**
-- **Task 4:** Set up a basic Node.js or Python (FastAPI) service to connect to Twitch chat using tmi.js.
-- **Task 5:** Implement message listener that logs incoming messages.
-- **Task 6:** Create a simple parser to filter and format chat messages for the dialogue engine.
+- **Task 4:** Set up a basic Node.js or Python (FastAPI) service to connect to Twitch chat using tmi.js. Done
+- **Task 5:** Implement message listener that logs incoming messages. Done
+- **Task 6:** Create a simple parser to filter and format chat messages for the dialogue engine. Done
 
 ### **List: Dialogue Generation (LLM Integration)**
 - **Task 7:** Set up LLM inference using an open source model (Llama 2/GPT4All) with vLLM.
