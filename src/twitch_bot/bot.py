@@ -9,6 +9,7 @@ from typing import List, Dict, Optional
 import logging
 from twitch_bot.config import settings
 from twitch_bot.message_parser import MessageParser
+from twitch_bot.llm_client import LLMClient
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)  # Change to DEBUG level
@@ -117,6 +118,8 @@ class Bot(commands.Bot):
         )
         self.channel = settings.TWITCH_CHANNEL
         self.message_parser = MessageParser(settings.TWITCH_BOT_USERNAME)
+        self.llm_client = LLMClient()
+        self.is_responding = False  # Flag to prevent multiple simultaneous responses
 
     async def broadcast_message(self, message: Dict):
         """Broadcast message to all connected WebSocket clients."""
@@ -167,9 +170,38 @@ class Bot(commands.Bot):
             # Log parsed message details
             logger.debug(f"Parsed message: {dialogue_message}")
             
-            # TODO: Send to dialogue engine when implemented
-            if parsed_message.addressed_to_bot:
-                logger.info(f"Message addressed to bot: {message.content}")
+            # Generate and send response if message is addressed to bot
+            if not parsed_message.addressed_to_bot and not self.is_responding:
+                try:
+                    self.is_responding = True  # Prevent multiple simultaneous responses
+                    
+                    # Check if LLM service is available
+                    if await self.llm_client.is_available():
+                        # Generate response
+                        response = await self.llm_client.generate_response(
+                            username=message.author.name,
+                            message=message.content
+                        )
+                        
+                        if response:
+                            # Send response to chat
+                            await message.channel.send(response)
+                            
+                            # Broadcast response
+                            await self.broadcast_message({
+                                "type": "bot_response",
+                                "content": response,
+                                "timestamp": datetime.now().isoformat()
+                            })
+                        else:
+                            logger.error("Failed to generate response")
+                    else:
+                        logger.error("LLM service is not available")
+                        
+                except Exception as e:
+                    logger.error(f"Error generating/sending response: {e}")
+                finally:
+                    self.is_responding = False
         
         # Broadcast to WebSocket clients
         await self.broadcast_message(msg_data)

@@ -1,2 +1,8 @@
 ai-co-hosting/
-twitch_bot/__pycache__/
+src/twitch_bot/__pycache__/
+src/llm_client/__pycache__/
+src/tts_client/__pycache__/
+src/avatar_client/__pycache__/
+src/obs_client/__pycache__/
+src/dashboard/__pycache__/
+src/overlay/__pycache__/

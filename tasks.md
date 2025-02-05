@@ -11,9 +11,9 @@
 - **Task 6:** Create a simple parser to filter and format chat messages for the dialogue engine. Done
 
 ### **List: Dialogue Generation (LLM Integration)**
-- **Task 7:** Set up LLM inference using an open source model (Llama 2/GPT4All) with vLLM.
-- **Task 8:** Create a simple API endpoint that takes chat input and returns generated dialogue.
-- **Task 9:** Integrate context management (e.g., store last 5 messages) to feed into the LLM.
+- **Task 7:** Set up LLM inference using an open source model (Llama 2/GPT4All) with vLLM. Done
+- **Task 8:** Create a simple API endpoint that takes chat input and returns generated dialogue. Done
+- **Task 9:** Integrate context management (e.g., store last 5 messages) to feed into the LLM. Done
 
 ### **List: Text-to-Speech Integration**
 - **Task 10:** Install and configure Mozilla TTS/Coqui TTS on the development server.
