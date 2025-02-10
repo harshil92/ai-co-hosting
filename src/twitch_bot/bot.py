@@ -12,8 +12,9 @@ from twitch_bot.message_parser import MessageParser
 from twitch_bot.llm_client import LLMClient
 from twitch_bot.command_handlers import CommandHandlers
 from twitch_bot.logging_config import setup_logging
-from tts_service.tts_engine import TTSEngine
+from tts_service.tts_engine import TTSEngine, AudioConfig
 from tts_service.config import DEFAULT_LANGUAGE
+from pathlib import Path
 
 # Set up logging with the new configuration
 setup_logging(log_level="DEBUG")
@@ -220,29 +221,31 @@ class Bot(commands.Bot):
             logger.debug("TTS engine already initialized")
             return True
         
+        # Create TTS config
+        tts_config = AudioConfig(
+            sample_rate=22050,  # Standard sample rate for TTS
+            device_index=0,     # Default audio device
+            cache_dir=Path("./tts_cache"),  # Cache directory for TTS audio
+            model_name="tts_models/en/ljspeech/vits"  # Default TTS model
+        )
+        
         for attempt in range(max_retries):
             try:
                 logger.info(f"Attempting to initialize TTS engine (attempt {attempt + 1}/{max_retries})")
-                self.tts_engine = TTSEngine()
+                self.tts_engine = TTSEngine(config=tts_config)
                 
                 # Test the TTS engine with an actual test phrase
                 test_text = "TTS system initialization test."
                 logger.info(f"Testing TTS with text: '{test_text}'")
                 
-                # Generate and play test audio
-                test_wav = self.tts_engine.generate_speech_stream(test_text)
-                if test_wav is not None:
-                    logger.info("Generated test audio successfully, attempting playback")
-                    try:
-                        await self.tts_engine.play_speech(test_text)
-                        logger.info("TTS engine initialized and tested successfully with audio playback")
-                        return True
-                    except Exception as e:
-                        logger.error(f"Failed to play test audio: {e}")
-                        raise
+                # Play test audio
+                success = await self.tts_engine.play_speech(test_text)
+                if success:
+                    logger.info("TTS engine initialized and tested successfully")
+                    return True
                 else:
-                    raise Exception("TTS engine failed to generate test audio")
-                
+                    raise Exception("Failed to play test audio")
+                    
             except Exception as e:
                 logger.error(f"Failed to initialize TTS engine (attempt {attempt + 1}): {e}")
                 if attempt < max_retries - 1:

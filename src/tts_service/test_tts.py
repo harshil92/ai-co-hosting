@@ -1,122 +1,134 @@
-import unittest
-import asyncio
-from tts_service.tts_engine import TTSEngine
+import pytest
 import numpy as np
-import logging
-import scipy.io.wavfile
+from pathlib import Path
 import sounddevice as sd
-from unittest.mock import patch
+import asyncio
+from unittest.mock import Mock, patch, AsyncMock
+from tts_engine import TTSEngine, AudioConfig, AudioCache, AudioProcessor, AudioDeviceManager
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,  # Changed to INFO to reduce noise
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    filename='tts_engine.log'
-)
-logger = logging.getLogger(__name__)
+@pytest.fixture
+def audio_config():
+    return AudioConfig(
+        sample_rate=22050,
+        device_index=0,
+        cache_dir=Path("./test_cache"),
+        model_name="tts_models/en/ljspeech/vits"
+    )
 
-class TestTTSEngine(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        """Set up test fixtures."""
-        logger.info("Initializing TTS Engine for tests")
-        cls.tts_engine = TTSEngine()
+@pytest.fixture
+def mock_tts():
+    with patch('tts_engine.TTS') as mock:
+        mock_instance = Mock()
+        mock_instance.tts.return_value = np.zeros(22050, dtype=np.float32)
+        mock_instance.speakers = None
+        mock.return_value = mock_instance
+        yield mock
 
-    def setUp(self):
-        logger.info("Setting up test case")
-        try:
-            self.engine = TTSEngine()
-        except Exception as e:
-            logger.error(f"Failed to initialize TTSEngine: {e}")
-            self.fail(f"TTSEngine initialization failed: {e}")
+@pytest.fixture
+def audio_cache(tmp_path):
+    cache_dir = tmp_path / "tts_cache"
+    return AudioCache(cache_dir)
 
-    def test_basic_tts(self):
-        """Test basic TTS functionality."""
-        logger.info("Testing basic TTS generation")
-        text = "This is a test sentence."
-        wav = self.engine.generate_speech_stream(text)
-        self.assertIsNotNone(wav)
-        self.assertTrue(isinstance(wav, np.ndarray))
-        self.assertTrue(wav.size > 0)
+@pytest.fixture
+def audio_processor():
+    return AudioProcessor()
 
-    # Comment out other tests temporarily
-    # def test_generate_speech_stream_long_text(self):
-    # ...
-    #
-    # def test_play_speech(self):
-    # ...
-    #
-    # def test_invalid_input(self):
-    # ...
-    #
-    # def test_audio_format(self):
-    # ...
+@pytest.fixture
+def audio_device_manager():
+    with patch('sounddevice.play'), patch('sounddevice.wait'):
+        manager = AudioDeviceManager(22050, 0)
+        yield manager
 
-    def generate_audio_file(self, text, filename):
-        """Generate an audio file from the given text."""
-        logger.info(f"Generating audio file for text: {text}")
-        try:
-            audio_data = self.engine.generate_speech_stream(text)
-            sample_rate = 22050  # Use the sample rate from your TTS engine
-            scipy.io.wavfile.write(filename, sample_rate, audio_data)
-            logger.info(f"Audio file saved as {filename}")
-        except Exception as e:
-            logger.error(f"Failed to generate audio file: {e}")
-            raise
+class TestAudioCache:
+    def test_cache_creation(self, tmp_path):
+        cache_dir = tmp_path / "tts_cache"
+        cache = AudioCache(cache_dir)
+        assert cache_dir.exists()
+    
+    def test_cache_audio(self, audio_cache):
+        test_audio = np.zeros(22050, dtype=np.float32)
+        audio_cache.cache_audio("test text", test_audio)
+        cached = audio_cache.get_cached_audio("test text")
+        assert np.array_equal(cached, test_audio)
+    
+    def test_invalid_cache(self, audio_cache):
+        assert audio_cache.get_cached_audio("nonexistent") is None
 
-    async def async_test_play_speech(self):
-        """Helper method to run play_speech asynchronously."""
-        test_text = "OH MAN, TALKING ANIME NOW?! :eyes: That's like asking me to choose my fave pizza topping, redblazin"
-        logger.info(f"Testing play_speech with text: {test_text}")
+class TestAudioProcessor:
+    def test_normalize_audio(self, audio_processor):
+        # Test audio that needs normalization
+        audio = np.array([2.0, -3.0, 1.5], dtype=np.float32)
+        normalized = audio_processor.normalize_audio(audio)
+        assert np.max(np.abs(normalized)) <= 1.0
         
-        # Create a flag to track if audio was generated
-        audio_generated = False
+        # Test audio that doesn't need normalization
+        audio = np.array([0.5, -0.3, 0.1], dtype=np.float32)
+        normalized = audio_processor.normalize_audio(audio)
+        assert np.array_equal(normalized, audio)
+    
+    def test_validate_audio(self, audio_processor):
+        # Valid audio
+        valid_audio = np.zeros(1000, dtype=np.float32)
+        assert audio_processor.validate_audio(valid_audio)
         
-        try:
-            # Generate and play the audio
-            audio_data = self.engine.generate_speech_stream(test_text)
-            if audio_data is not None and len(audio_data) > 0:
-                audio_generated = True
-                await self.engine.play_speech(test_text)
-                # Wait for audio to finish playing
-                await asyncio.sleep(3)
-            
-            logger.info(f"Audio generation completed. Audio generated: {audio_generated}")
-            return audio_generated
-            
-        except Exception as e:
-            logger.error(f"Error during play_speech test: {e}")
-            raise
+        # Invalid cases
+        assert not audio_processor.validate_audio(np.array([]))
+        assert not audio_processor.validate_audio(np.array([np.nan]))
 
-    def test_play_speech(self):
-        """Test that play_speech generates and attempts to play audio."""
-        logger.info("Starting play_speech test")
+class TestAudioDeviceManager:
+    @pytest.mark.asyncio
+    async def test_play_audio(self, audio_device_manager):
+        test_audio = np.zeros(22050, dtype=np.float32)
+        success = await audio_device_manager.play_audio(test_audio)
+        assert success
+
+    def test_device_setup(self):
+        with patch('sounddevice.query_devices') as mock_query:
+            mock_query.return_value = [{
+                'name': 'Test Device',
+                'max_output_channels': 2
+            }]
+            manager = AudioDeviceManager(22050, 0)
+            assert manager.sample_rate == 22050
+            assert manager.device_index == 0
+
+class TestTTSEngine:
+    @pytest.fixture
+    def tts_engine(self, audio_config, mock_tts):
+        return TTSEngine(audio_config)
+    
+    def test_initialization(self, tts_engine):
+        assert tts_engine.device in ["cuda", "cpu"]
+        assert tts_engine.speaker is None
+    
+    @pytest.mark.asyncio
+    async def test_play_speech(self, tts_engine):
+        with patch.object(tts_engine.device_manager, 'play_audio', new_callable=AsyncMock) as mock_play:
+            mock_play.return_value = True
+            result = await tts_engine.play_speech("Test text")
+            assert result
+            mock_play.assert_called_once()
+    
+    def test_generate_audio_empty_text(self, tts_engine):
+        assert tts_engine._generate_audio("") is None
+        assert tts_engine._generate_audio("   ") is None
+    
+    def test_generate_audio_with_cache(self, tts_engine):
+        # First generation
+        audio1 = tts_engine._generate_audio("Test text")
+        assert audio1 is not None
         
-        try:
-            # Run the async test
-            audio_generated = asyncio.run(self.async_test_play_speech())
-            
-            # Verify audio was generated
-            self.assertTrue(audio_generated, "No audio was generated during play_speech")
-            logger.info("play_speech test completed successfully")
-            
-        except Exception as e:
-            logger.error(f"play_speech test failed: {e}")
-            raise
-
-    def test_generate_audio_file(self):
-        """Test the generation of an audio file."""
-        logger.info("Testing audio file generation")
-        try:
-            self.generate_audio_file("Hello, this is a test.", "test_output.wav")
-            logger.info("Audio file generation test completed successfully")
-        except Exception as e:
-            logger.error(f"Audio file generation test failed: {e}")
-            raise
-
-    @classmethod
-    def tearDownClass(cls):
-        logger.info("TTS tests completed.")
+        # Should use cache
+        with patch.object(tts_engine.tts, 'tts') as mock_tts:
+            audio2 = tts_engine._generate_audio("Test text")
+            assert not mock_tts.called
+            assert np.array_equal(audio1, audio2)
+    
+    @pytest.mark.asyncio
+    async def test_error_handling(self, tts_engine):
+        with patch.object(tts_engine, '_generate_audio', return_value=None):
+            result = await tts_engine.play_speech("Test text")
+            assert not result
 
 if __name__ == '__main__':
-    unittest.main() 
+    pytest.main([__file__]) 
