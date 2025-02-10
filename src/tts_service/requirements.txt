@@ -1,0 +1,15 @@
+# TTS service requirements are now managed in the root requirements.txt
+# This file is kept for documentation purposes.
+
+# Required packages for TTS service:
+# - TTS==0.22.0
+# - torch>=2.1.0
+# - numpy>=1.20.0
+# - sounddevice>=0.4.6
+# - scipy>=1.9.0
+# - python-dotenv>=1.0.0
+# - gruut>=2.0.0
+# - ffmpeg-python>=0.2.0
+
+# Please install from the root requirements.txt file:
+# pip install -r ../../requirements.txt 
