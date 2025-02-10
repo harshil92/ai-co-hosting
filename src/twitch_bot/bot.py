@@ -10,9 +10,11 @@ import logging
 from twitch_bot.config import settings
 from twitch_bot.message_parser import MessageParser
 from twitch_bot.llm_client import LLMClient
+from tts_service.tts_engine import TTSEngine
+from tts_service.config import DEFAULT_LANGUAGE
 
 # Set up logging
-logging.basicConfig(level=logging.DEBUG)  # Change to DEBUG level
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="AI Co-Host Twitch Bot")
@@ -119,7 +121,66 @@ class Bot(commands.Bot):
         self.channel = settings.TWITCH_CHANNEL
         self.message_parser = MessageParser(settings.TWITCH_BOT_USERNAME)
         self.llm_client = LLMClient()
-        self.is_responding = False  # Flag to prevent multiple simultaneous responses
+        self.tts_engine = None
+        self.is_responding = False
+        self.current_language = DEFAULT_LANGUAGE
+        
+        # Initialize TTS in background task
+        asyncio.create_task(self._initialize_tts())
+
+    async def stop(self):
+        """Stops the bot and cleans up resources."""
+        logger.info("Stopping the bot...")
+        await self.cleanup()  # Ensure TTS and other resources are cleaned up
+        if self.loop:
+            self.loop.stop()  # Stop the TwitchIO bot's internal loop
+        logger.info("Bot stopped.")
+        
+    async def _initialize_tts(self, max_retries=3, retry_delay=5):
+        """Initialize TTS engine with retry logic."""
+        if self.tts_engine is not None:
+            logger.debug("TTS engine already initialized")
+            return True
+        
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Attempting to initialize TTS engine (attempt {attempt + 1}/{max_retries})")
+                self.tts_engine = TTSEngine()
+                
+                # Test the TTS engine with an actual test phrase
+                test_text = "TTS system initialization test."
+                logger.info(f"Testing TTS with text: '{test_text}'")
+                
+                # Generate and play test audio
+                test_wav = self.tts_engine.generate_speech_stream(test_text)
+                if test_wav is not None:
+                    logger.info("Generated test audio successfully, attempting playback")
+                    try:
+                        await self.tts_engine.play_speech(test_text)
+                        logger.info("TTS engine initialized and tested successfully with audio playback")
+                        return True
+                    except Exception as e:
+                        logger.error(f"Failed to play test audio: {e}")
+                        raise
+                else:
+                    raise Exception("TTS engine failed to generate test audio")
+                
+            except Exception as e:
+                logger.error(f"Failed to initialize TTS engine (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    logger.info(f"Retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+                else:
+                    logger.error("Failed to initialize TTS engine after all retries")
+                    self.tts_engine = None
+                    return False
+
+    async def _ensure_tts_available(self):
+        """Ensure TTS engine is available, attempting to reinitialize if needed."""
+        if self.tts_engine is None:
+            logger.info("TTS engine not available, attempting to initialize")
+            await self._initialize_tts(max_retries=1)
+        return self.tts_engine is not None
 
     async def broadcast_message(self, message: Dict):
         """Broadcast message to all connected WebSocket clients."""
@@ -137,6 +198,47 @@ class Bot(commands.Bot):
             "content": "Bot connected to Twitch chat",
             "timestamp": datetime.now().isoformat()
         })
+
+    async def _play_tts_response(self, text: str):
+        """
+        Play TTS response.
+        
+        Args:
+            text (str): Text to speak
+        """
+        if not text or not text.strip():
+            logger.warning("Empty text provided for TTS")
+            return False
+
+        if not await self._ensure_tts_available():
+            logger.warning("TTS engine not available and could not be initialized")
+            return False
+
+        try:
+            # Clean up the text - remove emotes and special characters
+            cleaned_text = ' '.join(word for word in text.split() if not (word.startswith(':') and word.endswith(':')))
+            if not cleaned_text.strip():
+                logger.warning("No text left after cleaning")
+                return False
+            
+            logger.info(f"Playing TTS for cleaned text: '{cleaned_text}'")
+
+            # Play the speech
+            success = await self.tts_engine.play_speech(cleaned_text)
+            if not success:
+                logger.error("Failed to play speech")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error playing TTS: {e}")
+            # Only reinitialize if it's a critical error
+            if "not initialized" in str(e).lower() or "device" in str(e).lower():
+                logger.info("Critical TTS error, attempting to reinitialize")
+                self.tts_engine = None
+                asyncio.create_task(self._initialize_tts())
+            return False
 
     async def event_message(self, message):
         """Called when a message is received in the Twitch chat."""
@@ -184,20 +286,30 @@ class Bot(commands.Bot):
                         )
                         
                         if response:
-                            # Send response to chat
-                            await message.channel.send(response)
+                            # Extract the response text
+                            response_text = response.get('response', '') if isinstance(response, dict) else response
                             
-                            # Broadcast response
+                            # Send response to chat first
+                            await message.channel.send(response_text)
+                            
+                            # Play the response using TTS
+                            tts_success = await self._play_tts_response(response_text)
+                            
+                            if not tts_success:
+                                logger.warning(f"Failed to play TTS for response: {response_text}")
+                            
+                            # Broadcast response with TTS status
                             await self.broadcast_message({
                                 "type": "bot_response",
-                                "content": response,
+                                "content": response_text,
+                                "tts_played": tts_success,
                                 "timestamp": datetime.now().isoformat()
                             })
                         else:
                             logger.error("Failed to generate response")
                     else:
                         logger.error("LLM service is not available")
-                        
+                    
                 except Exception as e:
                     logger.error(f"Error generating/sending response: {e}")
                 finally:
@@ -209,10 +321,32 @@ class Bot(commands.Bot):
         # Handle commands
         await self.handle_commands(message)
 
-    @commands.command(name="hello")
-    async def hello_command(self, ctx):
-        """Test command."""
-        await ctx.send(f"Hello {ctx.author.name}!")
+    @commands.command(name="tts")
+    async def tts_command(self, ctx, *, text: str = None):
+        """Command to test TTS with specific text."""
+        if not text:
+            await ctx.send("Please provide text to speak.")
+            return
+            
+        if not self.tts_engine:
+            await ctx.send("TTS is not available.")
+            return
+            
+        try:
+            await self._play_tts_response(text)
+            await ctx.send("TTS test completed.")
+        except Exception as e:
+            await ctx.send(f"TTS test failed: {str(e)}")
+
+    async def cleanup(self):
+        """Cleanup bot resources."""
+        if self.tts_engine:
+            try:
+                # Add cleanup method to TTSEngine class if needed
+                await self.tts_engine.cleanup()
+            except Exception as e:
+                logger.error(f"Error cleaning up TTS engine: {e}")
+            self.tts_engine = None
 
 @app.get("/auth/login")
 async def auth_login():
@@ -307,4 +441,4 @@ async def get_status():
         "channel": settings.TWITCH_CHANNEL,
         "connected_clients": len(connected_clients),
         "authenticated": bool(access_token)
-    } 
+    }

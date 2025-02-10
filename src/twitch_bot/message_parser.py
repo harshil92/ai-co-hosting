@@ -3,6 +3,9 @@ import re
 from typing import Dict, Optional, List
 from dataclasses import dataclass
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class ParsedMessage:
@@ -32,55 +35,45 @@ class MessageParser:
         # Question patterns
         self.question_pattern = re.compile(r'^(?:who|what|when|where|why|how|is|are|can|could|would|will|do|does|did|should|may|might)\b.*\?$', re.IGNORECASE)
         
-    def parse_message(self, message: Dict) -> Optional[ParsedMessage]:
-        """Parse a raw chat message into a structured format.
-        
-        Args:
-            message: Raw message data from Twitch chat
+    def parse_message(self, message_data: Dict) -> Optional[ParsedMessage]:
+        """Parse a message and determine if it's addressed to the bot."""
+        try:
+            content = message_data['content'].strip()
+            author = message_data['author']
             
-        Returns:
-            ParsedMessage object if message should be processed, None if message should be ignored
-        """
-        content = message.get('content', '').strip()
-        author = message.get('author', '').lower()
-        
-        # Ignore empty messages
-        if not content:
+            # Check if message mentions bot's username
+            addressed_to_bot = (
+                self.bot_username.lower() in content.lower() or
+                content.startswith('!') or  # Consider commands as addressed to bot
+                content.startswith('@' + self.bot_username.lower())
+            )
+            
+            # Extract any @mentions
+            mentioned_users = re.findall(r'@(\w+)', content)
+            
+            # Simple question detection
+            is_question = '?' in content
+            
+            # Extract emotes if present
+            emotes = message_data.get('emotes', [])
+            
+            logger.debug(f"Parsed message - addressed_to_bot: {addressed_to_bot}, " 
+                        f"author: {author}, content: {content}")
+            
+            return ParsedMessage(
+                content=content,
+                author=author,
+                timestamp=message_data.get('timestamp', datetime.now().isoformat()),
+                is_command=content.startswith('!'),
+                mentioned_users=mentioned_users,
+                emotes=emotes,
+                is_question=is_question,
+                addressed_to_bot=addressed_to_bot,
+                raw_message=message_data
+            )
+        except Exception as e:
+            logger.error(f"Error parsing message: {e}")
             return None
-            
-        # Check if message is a command
-        is_command = content.startswith('!')
-        if is_command:
-            return None  # Ignore commands
-            
-        # Extract mentioned users (including @mentions)
-        mentioned_users = [
-            user.lower() for user in re.findall(r'@(\w+)', content)
-        ]
-        
-        # Check if message is addressed to the bot
-        addressed_to_bot = (
-            self.bot_username in mentioned_users or
-            content.lower().startswith(self.bot_username)
-        )
-        
-        # Extract potential emotes (simple pattern matching)
-        emotes = self.emote_pattern.findall(content)
-        
-        # Check if message is a question
-        is_question = bool(self.question_pattern.match(content))
-        
-        return ParsedMessage(
-            content=content,
-            author=author,
-            timestamp=message.get('timestamp', datetime.now().isoformat()),
-            is_command=is_command,
-            mentioned_users=mentioned_users,
-            emotes=emotes,
-            is_question=is_question,
-            addressed_to_bot=addressed_to_bot,
-            raw_message=message
-        )
     
     def format_for_dialogue(self, parsed_message: ParsedMessage) -> Dict:
         """Format a parsed message for the dialogue engine.
