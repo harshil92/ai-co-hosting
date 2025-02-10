@@ -1,86 +1,137 @@
 # TTS Service
 
-This service provides Text-to-Speech functionality using Coqui-AI's XTTS-v2 model.
+This service provides Text-to-Speech functionality using Coqui TTS with advanced audio processing capabilities.
 
 ## Features
 
-- High-quality speech synthesis using XTTS-v2
-- Multi-language support (16 languages)
-- Real-time audio streaming
-- Sentence-level processing for better quality
-- Configurable audio settings
+- High-quality speech synthesis using Coqui TTS
+- Asynchronous audio playback with proper device management
+- Intelligent audio device selection and configuration
+- Audio caching for improved performance
 - Comprehensive error handling and logging
+- Automatic audio format conversion (mono/stereo)
+- Robust audio normalization and validation
 
-## Supported Languages
+## Components
 
-- English (en)
-- Spanish (es)
-- French (fr)
-- German (de)
-- Italian (it)
-- Portuguese (pt)
-- Polish (pl)
-- Turkish (tr)
-- Russian (ru)
-- Dutch (nl)
-- Czech (cs)
-- Arabic (ar)
-- Chinese (zh-cn)
-- Japanese (ja)
-- Hungarian (hu)
-- Korean (ko)
+### TTSEngine
+- Main coordinator for all TTS operations
+- Manages model initialization and audio generation
+- Handles text preprocessing and sentence splitting
+- Supports both CPU and CUDA acceleration
+
+### AudioDeviceManager
+- Automatic audio device detection and configuration
+- Fallback mechanisms for device selection
+- Proper channel and sample rate management
+- Asynchronous audio playback using ThreadPoolExecutor
+
+### AudioCache
+- Efficient caching of generated audio
+- MD5-based cache key generation
+- Persistent storage of audio data
+- Automatic cache directory management
+
+### AudioProcessor
+- Audio normalization to prevent clipping
+- Audio validation and quality checks
+- Format conversion and channel management
 
 ## Installation
 
 1. Install the required packages:
 ```bash
-pip install -r requirements.txt
+pip install -r ../../requirements.txt
 ```
 
-2. Make sure you have Python 3.7 or later installed.
+2. Requirements:
+   - Python 3.7 or later
+   - CUDA-capable GPU (optional, for faster processing)
+   - Working audio output device
 
 ## Configuration
 
-The service can be configured through environment variables or the `config.py` file:
+The service can be configured through `AudioConfig`:
 
-- `TTS_DEFAULT_SPEAKER`: Set a default speaker voice
-- `TTS_CUSTOM_VOICE_DIR`: Directory for custom voice files
-- Other settings available in `config.py`
+```python
+from pathlib import Path
+from tts_engine import TTSEngine, AudioConfig
+
+config = AudioConfig(
+    sample_rate=22050,          # Standard sample rate for TTS
+    device_index=0,             # Audio device index (auto-detects best device)
+    cache_dir=Path("./cache"),  # Directory for caching audio files
+    model_name="tts_models/en/ljspeech/vits"  # TTS model to use
+)
+
+engine = TTSEngine(config)
+```
 
 ## Usage
 
+### Basic Usage
 ```python
-from tts_engine import TTSEngine
-
-# Initialize the engine
-engine = TTSEngine()
+# Initialize the engine with configuration
+engine = TTSEngine(config)
 
 # Generate and play speech
 await engine.play_speech("Hello, this is a test!")
-
-# Generate speech file
-output_path = engine.generate_speech("Save this to a file", "output.wav")
-
-# Change language
-engine.language = "es"  # Switch to Spanish
-await engine.play_speech("¡Hola mundo!")
 ```
+
+### Error Handling
+The service includes comprehensive error handling:
+- Audio device validation and fallback
+- Cache error recovery
+- Model initialization retry logic
+- Proper cleanup on shutdown
+
+### Logging
+Detailed logging is available for:
+- Audio device configuration
+- TTS model initialization
+- Cache operations
+- Playback status
+- Error conditions
 
 ## Testing
 
 Run the test suite:
 ```bash
-python test_tts.py
+pytest test_tts.py
 ```
 
-## Error Handling
+The test suite includes:
+- Audio cache functionality
+- Audio processing operations
+- Device management
+- TTS engine initialization
+- Error handling scenarios
 
-The service includes comprehensive error handling and logging. Check the logs for detailed information about any issues.
+## Performance Considerations
+
+1. Audio Caching
+   - Frequently used phrases are cached
+   - Cache uses MD5 hashing for efficient lookup
+   - Automatic cache cleanup (TODO)
+
+2. Device Management
+   - Automatic selection of best available device
+   - Proper channel configuration
+   - Sample rate optimization
+
+3. Memory Management
+   - Efficient audio data handling
+   - Proper resource cleanup
+   - Asynchronous operations for better performance
 
 ## Contributing
 
-Feel free to submit issues and pull requests.
+When contributing, please:
+1. Add tests for new functionality
+2. Ensure all tests pass
+3. Follow the existing code style
+4. Update documentation as needed
 
 ## License
 
-This project is licensed under the same terms as Coqui-AI's XTTS-v2 model. 
+This project is licensed under the MIT License. Note that the TTS models may have their own licensing terms. 

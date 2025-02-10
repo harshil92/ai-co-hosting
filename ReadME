@@ -1,19 +1,196 @@
-Below is an updated development plan and requirements document for a Virtual Co-hosting app, now emphasizing open source tools and recent technologies. This revised plan focuses on using open source frameworks and libraries for the LLM backend, text-to-speech (TTS), real-time streaming integration, avatar rendering, and web services.
+# AI Co-Host for Twitch
 
----
+An AI-powered virtual co-hosting solution for Twitch streamers that provides dynamic, natural language interactions, real-time commentary, and text-to-speech capabilities.
 
-## 1. Overview and Objectives
+## Overview
 
-**Objective:**  
-Build an AI Virtual Co-host for Twitch that provides dynamic, natural language interactions via chat, real-time commentary during gameplay, and a customizable virtual avatar. The goal is to boost viewer engagement through an interactive, open source solution.
+This project implements a virtual co-host for Twitch streams using modern, open-source technologies. It consists of three main microservices that work together to create an engaging streaming experience:
 
-**Key Goals:**
-- Deliver low-latency, context-aware dialogue using open source LLMs.
-- Seamlessly integrate with Twitch chat and OBS (an open source streaming platform).
-- Offer customizable personality and visual appearance for the virtual co-host.
-- Utilize modern, open source tools to ensure flexibility, scalability, and community support.
+1. **Twitch Bot Service** - Core interaction layer with Twitch chat
+2. **LLM Service** - Natural language processing and response generation
+3. **TTS Service** - High-quality speech synthesis
 
----
+## Architecture
+
+```
+ai-co-hosting/
+├── src/
+│   ├── twitch_bot/    # Twitch chat integration and bot management
+│   ├── llm_service/   # Language model service for response generation
+│   └── tts_service/   # Text-to-speech service for voice output
+```
+
+### Service Integration
+- **Twitch Bot** ↔️ **LLM Service**: Chat message processing and response generation
+- **Twitch Bot** ↔️ **TTS Service**: Voice output for responses
+- All services communicate via REST APIs and WebSockets
+
+## Features
+
+### Core Features
+- Real-time chat interaction with context awareness
+- Natural language response generation
+- High-quality text-to-speech output
+- OAuth-based Twitch authentication
+- WebSocket-based real-time updates
+- Comprehensive command system
+- Message queue for rate limiting
+
+### Technical Features
+- FastAPI-based microservices
+- Asynchronous processing
+- Caching mechanisms
+- Robust error handling
+- Comprehensive logging
+- Automated testing
+
+## Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/ai-co-hosting.git
+cd ai-co-hosting
+```
+
+2. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+3. Set up environment variables:
+```bash
+# Twitch Configuration
+export TWITCH_CLIENT_ID="your_client_id"
+export TWITCH_CLIENT_SECRET="your_client_secret"
+export TWITCH_BOT_USERNAME="your_bot_username"
+export TWITCH_CHANNEL="your_channel"
+
+# API Configuration
+export API_HOST="0.0.0.0"
+export API_PORT="8000"
+export API_DEBUG="true"
+```
+
+## Quick Start
+
+1. Start the LLM service:
+```bash
+cd src/llm_service
+python -m uvicorn server:app --port 8001
+```
+
+2. Start the TTS service:
+```bash
+cd src/tts_service
+python -m uvicorn server:app --port 8002
+```
+
+3. Start the Twitch bot:
+```bash
+cd src/twitch_bot
+python -m twitch_bot
+```
+
+4. Open the web interface:
+```
+http://localhost:8000
+```
+
+5. Follow the OAuth authentication flow to connect your Twitch account
+
+## Service Details
+
+### Twitch Bot Service (Port 8000)
+- Manages Twitch chat interactions
+- Handles OAuth authentication
+- Coordinates between services
+- Provides web interface
+- [More details](src/twitch_bot/README.md)
+
+### LLM Service (Port 8001)
+- Processes natural language
+- Manages conversation context
+- Generates responses
+- Provides caching
+- [More details](src/llm_service/README.md)
+
+### TTS Service (Port 8002)
+- Generates speech from text
+- Manages audio devices
+- Provides audio caching
+- Handles format conversion
+- [More details](src/tts_service/README.md)
+
+## API Documentation
+
+### Main Endpoints
+
+#### Twitch Bot Service
+- `GET /` - Web interface
+- `GET /auth/login` - Start OAuth flow
+- `GET /auth/callback` - OAuth callback
+- `GET /status` - Service status
+- `WS /ws` - WebSocket updates
+
+#### LLM Service
+- `POST /chat` - Generate chat response
+- `GET /context` - Get conversation context
+- `GET /health` - Service health check
+
+#### TTS Service
+- `POST /speak` - Generate speech
+- `GET /health` - Service health check
+
+## Development
+
+### Requirements
+- Python 3.7 or later
+- Twitch Developer Application
+- LM Studio or similar LLM server
+- Working audio output device
+
+### Testing
+Run tests for all services:
+```bash
+pytest src/*/tests/
+```
+
+### Contributing
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests for new functionality
+5. Submit a pull request
+
+## Error Handling
+
+Each service implements comprehensive error handling:
+- Service connection retries
+- Resource cleanup
+- Graceful degradation
+- Detailed logging
+- Error recovery strategies
+
+## Performance Considerations
+
+- Message queue for rate limiting
+- Response caching
+- Asynchronous processing
+- Connection pooling
+- Resource management
+
+## License
+
+This project is licensed under the MIT License.
+
+## Acknowledgments
+
+This project uses the following open-source technologies:
+- FastAPI
+- TwitchIO
+- Coqui TTS
+- LM Studio
+- PyTorch
 
 http://localhost:8000  -  home page
 http://localhost:8000/auth/callback as an OAuth Redirect URL
