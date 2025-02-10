@@ -3,18 +3,54 @@ import json
 import requests
 import re
 from typing import List, Dict, Optional
+from functools import lru_cache
+import aiohttp
+import asyncio
+import logging
+from datetime import datetime, timedelta
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class LLMResponse:
+    def __init__(self, text: str, timestamp: datetime):
+        self.text = text
+        self.timestamp = timestamp
 
 class LMStudioClient:
-    def __init__(self, base_url: str = "http://localhost:1234/v1"):
+    def __init__(self, base_url: str = "http://localhost:1234/v1", cache_ttl: int = 3600):
         """Initialize the LM Studio client.
         
         Args:
             base_url: The base URL of the LM Studio server. Defaults to localhost:1234.
+            cache_ttl: Time to live for cached responses in seconds. Defaults to 1 hour.
         """
         self.base_url = base_url
         self.headers = {
             "Content-Type": "application/json"
         }
+        self.cache_ttl = cache_ttl
+        self._response_cache: Dict[str, LLMResponse] = {}
+        self._session = None
+        
+    async def __aenter__(self):
+        """Async context manager entry."""
+        self._session = aiohttp.ClientSession()
+        return self
+        
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit."""
+        if self._session:
+            await self._session.close()
+            
+    def _get_cache_key(self, messages: List[Dict[str, str]], **kwargs) -> str:
+        """Generate a cache key from messages and generation parameters."""
+        key_parts = [
+            json.dumps(messages, sort_keys=True),
+            json.dumps(kwargs, sort_keys=True)
+        ]
+        return "|".join(key_parts)
     
     def _clean_response(self, text: str) -> str:
         """Clean the response text by removing internal monologue and extra whitespace.
@@ -75,12 +111,13 @@ class LMStudioClient:
         
         return text
     
-    def generate_response(
+    async def generate_response(
         self,
         messages: List[Dict[str, str]],
         max_tokens: int = 1000,
         temperature: float = 0.7,
         top_p: float = 0.95,
+        use_cache: bool = True
     ) -> Optional[str]:
         """Generate a response using the LM Studio API.
         
@@ -89,12 +126,24 @@ class LMStudioClient:
             max_tokens: Maximum number of tokens to generate.
             temperature: Sampling temperature (0.0 to 1.0).
             top_p: Top-p sampling parameter.
+            use_cache: Whether to use response caching.
             
         Returns:
             Generated text response or None if the request fails.
         """
+        if use_cache:
+            cache_key = self._get_cache_key(messages, max_tokens=max_tokens, 
+                                          temperature=temperature, top_p=top_p)
+            cached = self._response_cache.get(cache_key)
+            if cached and (datetime.now() - cached.timestamp) < timedelta(seconds=self.cache_ttl):
+                logger.debug("Cache hit for query")
+                return cached.text
+
         try:
-            response = requests.post(
+            if not self._session:
+                self._session = aiohttp.ClientSession()
+
+            async with self._session.post(
                 f"{self.base_url}/chat/completions",
                 headers=self.headers,
                 json={
@@ -104,33 +153,35 @@ class LMStudioClient:
                     "top_p": top_p,
                     "stream": False
                 },
-                timeout=30
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                print(f"response: {result}")
-                raw_response = result["choices"][0]["message"]["content"]
-                cleaned_response = self._clean_response(raw_response)
-                
-                # Ensure the response isn't cut off
-                if cleaned_response.endswith(('...', ',', '. ', '! ', '? ')):
-                    cleaned_response = cleaned_response.rstrip('.!?, ')
-                
-                return cleaned_response
-            else:
-                print(f"Error: API request failed with status {response.status_code}")
-                return None
-                
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    logger.debug(f"Raw response: {result}")
+                    raw_response = result["choices"][0]["message"]["content"]
+                    cleaned_response = self._clean_response(raw_response)
+                    
+                    if use_cache:
+                        self._response_cache[cache_key] = LLMResponse(
+                            text=cleaned_response,
+                            timestamp=datetime.now()
+                        )
+                    
+                    return cleaned_response
+                else:
+                    logger.error(f"API request failed with status {response.status}")
+                    return None
+                    
         except Exception as e:
-            print(f"Error generating response: {str(e)}")
+            logger.error(f"Error generating response: {str(e)}")
             return None
             
-    async def get_response(self, message: str) -> Optional[str]:
+    async def get_response(self, message: str, use_cache: bool = True) -> Optional[str]:
         """Get a response for a chat message.
         
         Args:
             message: The chat message to respond to
+            use_cache: Whether to use response caching
             
         Returns:
             Generated response text or None if generation fails
@@ -140,16 +191,23 @@ class LMStudioClient:
             {"role": "user", "content": message}
         ]
         
-        return self.generate_response(messages)
+        return await self.generate_response(messages, use_cache=use_cache)
             
-    def is_available(self) -> bool:
+    async def is_available(self) -> bool:
         """Check if the LM Studio server is available.
         
         Returns:
             True if the server is responding, False otherwise.
         """
         try:
-            response = requests.get(f"{self.base_url}/models", timeout=5)
-            return response.status_code == 200
-        except:
+            if not self._session:
+                self._session = aiohttp.ClientSession()
+                
+            async with self._session.get(
+                f"{self.base_url}/models",
+                timeout=aiohttp.ClientTimeout(total=5)
+            ) as response:
+                return response.status == 200
+        except Exception as e:
+            logger.error(f"Error checking availability: {str(e)}")
             return False 
