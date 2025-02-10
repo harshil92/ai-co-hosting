@@ -1,8 +1,31 @@
+# Web Framework
 fastapi==0.109.0
 uvicorn==0.27.0
+
+# Twitch Integration
 twitchio==2.8.2
+
+# Data Validation
 pydantic==2.5.3
 pydantic-settings==2.1.0
+
+# Networking
 websockets==12.0
-requests>=2.31.0
-aiohttp>=3.9.1 
+requests==2.31.0
+aiohttp==3.9.1
+
+# TTS Dependencies
+TTS==0.22.0  # Latest version
+torch==2.1.0  # Version compatible with TTS 0.22.0
+numpy>=1.20.0
+sounddevice>=0.4.6
+scipy>=1.9.0
+python-dotenv>=1.0.0
+gruut>=2.0.0  # For text processing
+
+# Audio Processing
+ffmpeg-python>=0.2.0
+
+# Type Checking
+typing-extensions>=4.9.0
+mypy>=1.8.0 

@@ -1,5 +1,6 @@
 """Configuration management for the AI Co-host Twitch Bot."""
 from pydantic_settings import BaseSettings
+from pydantic import Field
 import os
 import requests
 from typing import Optional
@@ -22,15 +23,23 @@ class Settings(BaseSettings):
     """Application settings and configuration."""
     
     # Twitch Configuration
-    TWITCH_CLIENT_ID: Optional[str] = None
-    TWITCH_CLIENT_SECRET: Optional[str] = None
-    TWITCH_REDIRECT_URI: str = "http://localhost:8000/auth/callback"
-    TWITCH_BOT_USERNAME: Optional[str] = None
-    TWITCH_CHANNEL: Optional[str] = None
+    TWITCH_CLIENT_ID: str = Field(..., description="Twitch application client ID")
+    TWITCH_CLIENT_SECRET: str = Field(..., description="Twitch application client secret")
+    TWITCH_REDIRECT_URI: str = Field(
+        "http://localhost:8000/auth/callback",
+        description="OAuth redirect URI"
+    )
+    TWITCH_BOT_USERNAME: str = Field(..., description="Bot's Twitch username")
+    TWITCH_CHANNEL: str = Field(..., description="Channel to join")
     
     # API Configuration
-    API_HOST: str = "0.0.0.0"
-    API_PORT: int = 8000
+    API_HOST: str = Field("0.0.0.0", description="API host")
+    API_PORT: int = Field(8000, description="API port")
+    API_DEBUG: bool = Field(True, description="Run API in debug mode")
+
+    model_config = {
+        "env_file": None  # Disable .env file loading
+    }
 
     def validate_twitch_settings(self):
         """Validate that all required Twitch settings are present."""
@@ -144,14 +153,11 @@ class Settings(BaseSettings):
             
         return response.json()
 
-    class Config:
-        """Pydantic configuration class."""
-        env_file = None  # Disable .env file loading
-
 # Initialize settings
 settings = Settings(
     TWITCH_CLIENT_ID=os.environ.get("TWITCH_CLIENT_ID"),
     TWITCH_CLIENT_SECRET=os.environ.get("TWITCH_CLIENT_SECRET"),
     TWITCH_CHANNEL=os.environ.get("TWITCH_CHANNEL"),
-    TWITCH_BOT_USERNAME=os.environ.get("TWITCH_BOT_USERNAME")
+    TWITCH_BOT_USERNAME=os.environ.get("TWITCH_BOT_USERNAME"),
+    API_DEBUG=os.environ.get("API_DEBUG", "true").lower() == "true"
 ) 
