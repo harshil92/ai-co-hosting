@@ -35,6 +35,37 @@ class MessageParser:
         # Question patterns
         self.question_pattern = re.compile(r'^(?:who|what|when|where|why|how|is|are|can|could|would|will|do|does|did|should|may|might)\b.*\?$', re.IGNORECASE)
         
+    def should_respond(self, message: str) -> bool:
+        """Determine if the bot should respond to a message.
+        
+        Args:
+            message: The message content to check
+            
+        Returns:
+            bool: True if the bot should respond, False otherwise
+        """
+        message = message.lower().strip()
+        
+        # Always respond to direct commands
+        if message.startswith('!'):
+            return True
+            
+        # Respond if bot is not mentioned or 
+        if not self.bot_username in message or f'@{self.bot_username}' in message:
+            return True
+            
+        # Respond to direct questions
+        if self.question_pattern.match(message):
+            return True
+            
+        # Don't respond to messages that are too short or seem like chat noise
+        if len(message.split()) < 2:
+            return False
+            
+        # Log the decision for debugging
+        logger.debug(f"Should respond to message '{message}': {False}")
+        return False
+        
     def parse_message(self, message_data: Dict) -> Optional[ParsedMessage]:
         """Parse a message and determine if it's addressed to the bot."""
         try:

@@ -126,6 +126,22 @@ class LMStudioClient:
             print(f"Error generating response: {str(e)}")
             return None
             
+    async def get_response(self, message: str) -> Optional[str]:
+        """Get a response for a chat message.
+        
+        Args:
+            message: The chat message to respond to
+            
+        Returns:
+            Generated response text or None if generation fails
+        """
+        messages = [
+            {"role": "system", "content": "You are a friendly and engaging Twitch chat co-host. Keep responses concise and natural."},
+            {"role": "user", "content": message}
+        ]
+        
+        return self.generate_response(messages)
+            
     def is_available(self) -> bool:
         """Check if the LM Studio server is available.
         

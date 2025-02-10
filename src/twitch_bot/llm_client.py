@@ -67,6 +67,27 @@ class LLMClient:
             logger.error(f"Error generating response: {e}")
             return None
             
+    async def get_response(self, message: str) -> Optional[str]:
+        """Get a response for a chat message.
+        
+        Args:
+            message: The chat message to respond to
+            
+        Returns:
+            str: Generated response text or None if generation fails
+        """
+        try:
+            response = await self.generate_response(
+                username="user",  # Generic username since we don't have it in this context
+                message=message
+            )
+            if response and isinstance(response, dict):
+                return response.get("response")
+            return None
+        except Exception as e:
+            logger.error(f"Error getting response: {e}")
+            return None
+            
     async def get_context(self) -> Optional[Dict]:
         """Get the current conversation context.
         

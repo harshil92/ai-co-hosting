@@ -10,11 +10,13 @@ import logging
 from twitch_bot.config import settings
 from twitch_bot.message_parser import MessageParser
 from twitch_bot.llm_client import LLMClient
+from twitch_bot.command_handlers import CommandHandlers
+from twitch_bot.logging_config import setup_logging
 from tts_service.tts_engine import TTSEngine
 from tts_service.config import DEFAULT_LANGUAGE
 
-# Set up logging
-logging.basicConfig(level=logging.DEBUG)
+# Set up logging with the new configuration
+setup_logging(log_level="DEBUG")
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="AI Co-Host Twitch Bot")
@@ -118,24 +120,100 @@ class Bot(commands.Bot):
             prefix="!",
             initial_channels=[settings.TWITCH_CHANNEL]
         )
+        
+        # Initialize components
         self.channel = settings.TWITCH_CHANNEL
         self.message_parser = MessageParser(settings.TWITCH_BOT_USERNAME)
         self.llm_client = LLMClient()
+        self.command_handlers = CommandHandlers(self)
         self.tts_engine = None
         self.is_responding = False
         self.current_language = DEFAULT_LANGUAGE
         
-        # Initialize TTS in background task
-        asyncio.create_task(self._initialize_tts())
+        # Message queue for handling chat messages
+        self.message_queue = asyncio.Queue()
+        
+        # Start background tasks
+        self._background_tasks = [
+            asyncio.create_task(self._initialize_tts()),
+            asyncio.create_task(self._process_message_queue())
+        ]
+
+    async def _process_message_queue(self):
+        """Process messages from the queue to prevent overwhelming the bot."""
+        while True:
+            try:
+                message = await self.message_queue.get()
+                await self._handle_message(message)
+                self.message_queue.task_done()
+                # Small delay to prevent CPU overload
+                await asyncio.sleep(0.1)
+            except Exception as e:
+                logger.error(f"Error processing message from queue: {e}")
+                await asyncio.sleep(1)  # Longer delay on error
+
+    async def _handle_message(self, message):
+        """Handle a single message from the queue."""
+        try:
+            # Process message logic here
+            msg_data = {
+                "type": "chat_message",
+                "username": message.author.name,
+                "content": message.content,
+                "timestamp": datetime.now().isoformat()
+            }
+            await self.broadcast_message(msg_data)
+            
+            # Check if message requires bot response
+            if self.message_parser.should_respond(message.content):
+                response = await self.llm_client.get_response(message.content)
+                if response:
+                    await message.channel.send(response)
+                    if self.tts_engine:
+                        await self._play_tts_response(response)
+        except Exception as e:
+            logger.error(f"Error handling message: {e}")
+
+    async def event_message(self, message):
+        """Called when a message is received in the Twitch chat."""
+        if message.echo:
+            return
+
+        # Add message to queue instead of processing immediately
+        await self.message_queue.put(message)
+
+    @commands.command(name="tts")
+    async def tts_command(self, ctx, *, text: str = None):
+        """Handle TTS command using the command handler."""
+        await self.command_handlers.handle_tts_command(ctx, text)
+
+    async def cleanup(self):
+        """Clean up resources before shutting down."""
+        logger.info("Cleaning up bot resources...")
+        
+        # Cancel all background tasks
+        for task in self._background_tasks:
+            task.cancel()
+        
+        # Wait for tasks to complete
+        await asyncio.gather(*self._background_tasks, return_exceptions=True)
+        
+        # Clean up TTS engine
+        if self.tts_engine:
+            await self.tts_engine.cleanup()
+        
+        # Close any other resources
+        if hasattr(self, 'llm_client'):
+            await self.llm_client.close()
 
     async def stop(self):
         """Stops the bot and cleans up resources."""
         logger.info("Stopping the bot...")
-        await self.cleanup()  # Ensure TTS and other resources are cleaned up
+        await self.cleanup()
         if self.loop:
-            self.loop.stop()  # Stop the TwitchIO bot's internal loop
-        logger.info("Bot stopped.")
-        
+            self.loop.stop()
+        logger.info("Bot stopped successfully.")
+
     async def _initialize_tts(self, max_retries=3, retry_delay=5):
         """Initialize TTS engine with retry logic."""
         if self.tts_engine is not None:
@@ -239,114 +317,6 @@ class Bot(commands.Bot):
                 self.tts_engine = None
                 asyncio.create_task(self._initialize_tts())
             return False
-
-    async def event_message(self, message):
-        """Called when a message is received in the Twitch chat."""
-        if message.echo:
-            return
-
-        # Create message data
-        msg_data = {
-            "type": "chat_message",
-            "content": message.content,
-            "author": message.author.name,
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        # Parse the message
-        parsed_message = self.message_parser.parse_message(msg_data)
-        if parsed_message:
-            # Format for dialogue engine
-            dialogue_message = self.message_parser.format_for_dialogue(parsed_message)
-            
-            # Add parsed data to broadcast
-            msg_data.update({
-                "parsed_data": {
-                    "is_question": parsed_message.is_question,
-                    "addressed_to_bot": parsed_message.addressed_to_bot,
-                    "mentioned_users": parsed_message.mentioned_users,
-                    "emotes": parsed_message.emotes
-                }
-            })
-            
-            # Log parsed message details
-            logger.debug(f"Parsed message: {dialogue_message}")
-            
-            # Generate and send response if message is addressed to bot
-            if not parsed_message.addressed_to_bot and not self.is_responding:
-                try:
-                    self.is_responding = True  # Prevent multiple simultaneous responses
-                    
-                    # Check if LLM service is available
-                    if await self.llm_client.is_available():
-                        # Generate response
-                        response = await self.llm_client.generate_response(
-                            username=message.author.name,
-                            message=message.content
-                        )
-                        
-                        if response:
-                            # Extract the response text
-                            response_text = response.get('response', '') if isinstance(response, dict) else response
-                            
-                            # Send response to chat first
-                            await message.channel.send(response_text)
-                            
-                            # Play the response using TTS
-                            tts_success = await self._play_tts_response(response_text)
-                            
-                            if not tts_success:
-                                logger.warning(f"Failed to play TTS for response: {response_text}")
-                            
-                            # Broadcast response with TTS status
-                            await self.broadcast_message({
-                                "type": "bot_response",
-                                "content": response_text,
-                                "tts_played": tts_success,
-                                "timestamp": datetime.now().isoformat()
-                            })
-                        else:
-                            logger.error("Failed to generate response")
-                    else:
-                        logger.error("LLM service is not available")
-                    
-                except Exception as e:
-                    logger.error(f"Error generating/sending response: {e}")
-                finally:
-                    self.is_responding = False
-        
-        # Broadcast to WebSocket clients
-        await self.broadcast_message(msg_data)
-        
-        # Handle commands
-        await self.handle_commands(message)
-
-    @commands.command(name="tts")
-    async def tts_command(self, ctx, *, text: str = None):
-        """Command to test TTS with specific text."""
-        if not text:
-            await ctx.send("Please provide text to speak.")
-            return
-            
-        if not self.tts_engine:
-            await ctx.send("TTS is not available.")
-            return
-            
-        try:
-            await self._play_tts_response(text)
-            await ctx.send("TTS test completed.")
-        except Exception as e:
-            await ctx.send(f"TTS test failed: {str(e)}")
-
-    async def cleanup(self):
-        """Cleanup bot resources."""
-        if self.tts_engine:
-            try:
-                # Add cleanup method to TTSEngine class if needed
-                await self.tts_engine.cleanup()
-            except Exception as e:
-                logger.error(f"Error cleaning up TTS engine: {e}")
-            self.tts_engine = None
 
 @app.get("/auth/login")
 async def auth_login():
